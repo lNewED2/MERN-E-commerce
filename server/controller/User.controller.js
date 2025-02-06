@@ -1,146 +1,79 @@
-const ProductModel = require("../model/Product");
+const bcrypt = require("bcrypt");
+const UserModel = require("../model/User");
+const salt = bcrypt.genSaltSync(10);
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const secret = process.env.SECRET;
 
-exports.createProduct = async (req, res) => {
-  /**
-    #swagger.tags = ['Product']
-    #swagger.summary = "Create a new product"
-    #swagger.description = 'Endpoint to create a new product'
-    #swagger.consumes = ['multipart/form-data']
-    #swagger.parameters['file'] = {
-       in:'formData',
-       type:'file',
-       required:true,
-       description:'Image to upload to Firebase Storage and get its url'
-    }
-    #swagger.requestBody = {
-       required:true,
-       content:{
-         "multipart/form-data":{
-           schema:{
-             $ref:"#components/schemas/NewProduct"
-           }
-         }
-       }
-    }
-    #swagger.response[200] = {
-       schema:{ "$ref": "#components/schemas/ProductResponse"},
-       description: "Product created successfully"
-    }
-   */
-  if (!req.file) {
-    return res.status(400).json({ message: "Image is required" });
-  }
-  const firebaseUrl = req.file.firebaseUrl;
-  const { name, description, category, price } = req.body;
-  if (!name || !description || !category || !price) {
-    return res.status(400).json({ message: "Please fill in all fields" });
-  }
-  try {
-    const ProductDoc = await ProductModel.create({
-      name,
-      description,
-      category,
-      image: firebaseUrl,
-      price,
+exports.register = async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    res.status(400).send({
+      message: "Please enter both username and password",
     });
-    res.json(ProductDoc);
+    return;
+  }
+  try {
+    const hashedPassword = bcrypt.hashSync(password, salt);
+    const user = await UserModel.create({
+      username,
+      password: hashedPassword,
+    });
+    res.status(201).send({
+      message: "User Register successfully",
+      user,
+    });
   } catch (error) {
-    console.log(error.message);
-    res.status(500).json({ message: "Failed to create Product" });
+    res.status(500).send({
+      message: error.message || "Error in registering user",
+    });
   }
 };
 
-exports.getProduct = async (req, res) => {
-  try {
-    const Product = await ProductModel.find();
-    //SELECT * FROM Product WHERE Product.author =USER._id
-    if (!Product) {
-      return res.status(404).json({ message: "No Product found" });
-    }
-    res.json(Product);
-  } catch (error) {
-    console.log(error.message);
-    res.status(500).send({ message: error.message || "Internal server error" });
+exports.login = async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    res.status(400).send({
+      message: "Please enter both username and password",
+    });
+    return;
   }
-};
-
-exports.getProductById = async (req, res) => {
-  const { id } = req.params;
   try {
-    const ProductDoc = await ProductModel.findById(id);
-    if (!ProductDoc) {
-      return res.status(404).send({ message: "Product not found" });
-    }
-    res.json(ProductDoc);
-  } catch (error) {
-    console.log(error.message);
-    res.status(500).send({ message: error.message || "Internal server error" });
-  }
-};
-
-exports.deleteProduct = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const ProductDoc = await ProductModel.findById(id);
-    if (!ProductDoc) {
-      res.status(404).send({ message: "You can not delete Product" });
+    const userDoc = await UserModel.findOne({ username });
+    if (!userDoc) {
+      res.status(404).send({
+        message: "User not found",
+      });
       return;
     }
-    await ProductDoc.deleteOne();
-    res.json({ message: "Product deleted successfully" });
-  } catch (error) {
-    console.log(error.message);
-    res.status(500).send({ message: error.message || "delete Product error" });
-  }
-};
-
-exports.updateProduct = async (req, res) => {
-  const { id } = req.params;
-  if (!id) return res.status(404).json({ message: "Product not provided" });
-
-  try {
-    const ProductDoc = await ProductModel.findById(id);
-    if (!ProductDoc) {
-      res.status(404).send({ message: "You can not update Product" });
+    const isValidPassword = bcrypt.compareSync(password, userDoc.password);
+    if (!isValidPassword) {
+      res.status(401).send({
+        message: "Invalid password",
+      });
       return;
     }
 
-    const { name, category, description, price } = req.body;
-    if (!name || !category || !description || !price) {
-      return res.status(400).json({ message: "Please fill in all fields" });
-    }
-    ProductDoc.name = name;
-    ProductDoc.category = category;
-    ProductDoc.description = description;
-    ProductDoc.price = price;
-    if (req.file) {
-      const path = req.file.firebaseUrl;
-      ProductDoc.image = path;
-    }
-    await ProductDoc.save();
-    res.json({ message: "Product updated successfully" });
-  } catch (error) {
-    console.log(error.message);
-    res.status(500).send({ message: error.message || "update Product error" });
-  }
-};
+    //login success
+    jwt.sign({ username, id: userDoc._id }, secret, {}, (err, token) => {
+      if (err) {
+        res.status(500).send({
+          message: "Internal server error:cannot General token",
+        });
+        return;
+      }
 
-exports.getProductByAuthor = async (req, res) => {
-  const { id } = req.params;
-  try {
-    const ProductDoc = await ProductModel.find({ author: id }).populate(
-      "author",
-      ["username"]
-    );
-    if (!ProductDoc) {
-      return res.status(404).send({ message: "author not found" });
-    }
-    res.json(ProductDoc);
+      //token general
+      res.status(200).send({
+        message: "Login success",
+        id: userDoc._id,
+        username,
+        accessToken: token,
+      });
+    });
   } catch (error) {
-    console.log(error.message);
-    res.status(500).send({ message: error.message || "Internal server error" });
+    res.status(500).send({
+      message: error.message || "Error in logging user",
+    });
   }
 };

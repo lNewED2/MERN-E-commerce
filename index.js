@@ -4,6 +4,7 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 const UserRouter = require("./router/User.router");
 const ProductRouter = require("./router/Product.router");
+const OrderRouter = require("./router/Order.router");
 
 const app = express();
 const BASE_URL = process.env.BASE_URL;
